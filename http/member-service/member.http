@@ -1,0 +1,51 @@
+# @name=getAllMembersByManagerId
+GET {{baseUrl}}/members
+Accept: application/json
+Authorization: Bearer {{accessToken}}
+
+###
+# @name=getMemberById
+GET {{baseUrl}}/members/1
+Accept: application/json
+Authorization: Bearer {{accessToken}}
+
+###
+# @name=createMember
+POST {{baseUrl}}/members
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "name": "New Member1",
+  "email": "new.member1@serviceapp.com",
+  "birthDate": "1990-01-15",
+  "serviceType": "free"
+}
+
+###
+# @name=updateMember
+PUT {{baseUrl}}/members/1
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "name": "Updated Member Name",
+  "email": "updated.member@serviceapp.com"
+}
+
+###
+# @name=deleteMember
+DELETE {{baseUrl}}/members/2
+Authorization: Bearer {{accessToken}}
+
+###
+# @name=getAllPrices
+GET {{baseUrl}}/members/prices
+Accept: application/json
+Authorization: Bearer {{accessToken}}
+
+###
+# @name=getNewMemberRequests
+GET {{baseUrl}}/members/requests
+Accept: application/json
+Authorization: Bearer {{accessToken}}

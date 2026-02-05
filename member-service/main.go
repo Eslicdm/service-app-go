@@ -22,7 +22,8 @@ import (
 func main() {
 	_ = godotenv.Load()
 
-	dsn := fmt.Sprintf("host=localhost user=%s password=%s dbname=%s port=5435 sslmode=disable TimeZone=UTC",
+	dsn := fmt.Sprintf("host=localhost user=%s password=%s dbname=%s "+
+		"port=5435 sslmode=disable TimeZone=UTC",
 		os.Getenv("MEMBER_DB_USERNAME"),
 		os.Getenv("MEMBER_DB_PASSWORD"),
 		os.Getenv("MEMBER_DB_NAME"),

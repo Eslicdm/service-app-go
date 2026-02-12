@@ -26,3 +26,4 @@ Thumbs.db
 
 # Binary output
 /member-service/member-service
+http/auth/http-client.private.env.json

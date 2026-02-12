@@ -1,44 +1,25 @@
-version: '3.8'
-
 services:
   member-service:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: member-service/Dockerfile
     container_name: member-service
+    environment:
+      - MEMBER_DB_USERNAME=${MEMBER_DB_USERNAME}
+      - MEMBER_DB_PASSWORD=${MEMBER_DB_PASSWORD}
+      - MEMBER_DB_NAME=${MEMBER_DB_NAME}
     ports:
-      - "8080:8080"
-    environment:
-      # Database Connection
-      - DB_HOST=postgres
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - DB_NAME=member_db
-      - DB_PORT=5432
-      # Security Config
-      # If your Identity Provider (e.g., Keycloak) is running on the host machine, 
-      # use http://host.docker.internal:8080/... instead of localhost.
-      - ISSUER_URI=http://host.docker.internal:8080/realms/myrealm
-    depends_on:
-      - postgres
+      - "8090:8090"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8090/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     networks:
-      - app-network
-
-  postgres:
-    image: postgres:15-alpine
-    container_name: member-db
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=member_db
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - app-network
-
-volumes:
-  postgres_data:
+      - service-app-network
+    restart: no
 
 networks:
-  app-network:
+  service-app-network:
     driver: bridge

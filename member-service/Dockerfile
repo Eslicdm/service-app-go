@@ -1,3 +1,4 @@
+# Image size 70mb
 # Stage 1: Build the application
 FROM golang:1.25-alpine AS builder
 

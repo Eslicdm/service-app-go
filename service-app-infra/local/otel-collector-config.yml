@@ -1,0 +1,120 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: "0.0.0.0:4318"
+      grpc:
+        endpoint: "0.0.0.0:4317"
+  hostmetrics:
+    collection_interval: 10s
+    scrapers:
+      paging:
+        metrics:
+          system.paging.utilization:
+            enabled: true
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      disk:
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+      load:
+      memory:
+      network:
+      processes:
+
+processors:
+  batch:
+    send_batch_max_size: 100
+    send_batch_size: 10
+    timeout: 10s
+
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: local
+        action: upsert
+
+  # Transform OTel metric names to Datadog-compatible names
+  metricstransform:
+    transforms:
+      # JVM Heap Memory
+      - include: process.runtime.jvm.memory.usage
+        action: update
+        new_name: jvm.heap_memory
+        operations:
+          - action: add_label
+            new_label: type
+            new_value: used
+      - include: process.runtime.jvm.memory.limit
+        action: update
+        new_name: jvm.heap_memory
+        operations:
+          - action: add_label
+            new_label: type
+            new_value: max
+
+      # JVM GC Duration
+      - include: process.runtime.jvm.gc.duration
+        action: update
+        new_name: jvm.gc.duration
+
+      # JVM Thread Count
+      - include: process.runtime.jvm.threads.count
+        action: update
+        new_name: jvm.thread.count
+
+      # JVM CPU Utilization
+      - include: process.runtime.jvm.cpu.utilization
+        action: update
+        new_name: jvm.cpu.recent_utilization
+
+exporters:
+  datadog:
+    api:
+      key: ${DD_API_KEY}
+      site: "datadoghq.com"
+    hostname: "otel-collector"
+    traces:
+      trace_buffer: 500
+      span_name_as_resource_name: true
+    metrics:
+      histograms:
+        mode: distributions
+        send_count_sum_metrics: true
+      sums:
+        cumulative_monotonic_mode: to_delta
+    host_metadata:
+      enabled: true
+      hostname_source: config_or_system
+      tags:
+        - "env:local"
+        - "source:otel-collector"
+
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+    path: "/"
+
+service:
+  pipelines:
+    metrics:
+      receivers: [ otlp, hostmetrics ]
+      processors: [ memory_limiter, resource, metricstransform, batch ]
+      exporters: [ datadog ]
+    traces:
+      receivers: [ otlp ]
+      processors: [ memory_limiter, resource, batch ]
+      exporters: [ datadog ]
+    logs:
+      receivers: [ otlp ]
+      processors: [ memory_limiter, resource, batch ]
+      exporters: [ datadog ]
+  extensions: [ health_check ]

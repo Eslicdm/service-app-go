@@ -1,0 +1,8 @@
+.idea
+*.iws
+*.iml
+*.ipr
+local/.env
+k8s/.env.secrets
+.vscode/
+local/http/auth/http-client.private.env.json

@@ -1,0 +1,77 @@
+# Redis
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: service-app
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          command:
+            - /bin/sh
+            - -c
+            - redis-server --requirepass "$REDIS_PASSWORD"
+          ports:
+            - containerPort: 6379
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: REDIS_PASSWORD
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+              ephemeral-storage: "256Mi"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+              ephemeral-storage: "512Mi"
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        storageClassName: local-path
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: service-app
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+  clusterIP: None

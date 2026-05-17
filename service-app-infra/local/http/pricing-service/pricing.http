@@ -1,0 +1,37 @@
+# @name=getAllPrices
+GET {{baseUrl}}/prices
+Accept: application/json
+Authorization: Bearer {{accessToken}}
+
+###
+# @name=updateFreePrice
+PUT {{baseUrl}}/prices/free
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "value": 0.00,
+  "description": "The Garden Pass. Our introductory tier offering complimentary access to our serene botanical gardens and scenic walking trails. Perfect for casual visitors wanting to experience the club's tranquil atmosphere."
+}
+
+###
+# @name=updateHalfPrice
+PUT {{baseUrl}}/prices/half-price
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "value": 49.99,
+  "description": "The Club Membership. Includes all Garden Pass benefits, plus full access to our resort-style swimming pool and the exclusive member lounge. Ideal for individuals and families seeking a regular social and recreational hub."
+}
+
+###
+# @name=updateFullPrice
+PUT {{baseUrl}}/prices/full-price
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "value": 99.99,
+  "description": "The Patron Membership. Our premier offering for an unparalleled club experience. Enjoy all Club Member benefits, plus unlimited access to our 18-hole championship golf course, dedicated sports courts (tennis, basketball, volleyball, table tennis), and a complimentary daily lunch at the clubhouse."
+}

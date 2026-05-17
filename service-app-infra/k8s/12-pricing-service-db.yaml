@@ -1,0 +1,94 @@
+# MongoDB for Pricing Service
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pricing-service-db
+  namespace: service-app
+spec:
+  serviceName: pricing-service-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pricing-service-db
+  template:
+    metadata:
+      labels:
+        app: pricing-service-db
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: mongodb
+          image: mongo:7.0
+          ports:
+            - containerPort: 27017
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: PRICING_DB_USERNAME
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: PRICING_DB_PASSWORD
+            - name: MONGO_INITDB_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: PRICING_DB_NAME
+          volumeMounts:
+            - name: mongo-storage
+              mountPath: /data/db
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - mongosh --norc --quiet --eval "db.adminCommand('ping')" --host localhost --port 27017 -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - mongosh --norc --quiet --eval "db.adminCommand('ping')" --host localhost --port 27017 -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin
+            initialDelaySeconds: 60
+            timeoutSeconds: 10
+            periodSeconds: 20
+            failureThreshold: 5
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+              ephemeral-storage: "256Mi"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+              ephemeral-storage: "512Mi"
+  volumeClaimTemplates:
+    - metadata:
+        name: mongo-storage
+      spec:
+        storageClassName: local-path
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pricing-service-db
+  namespace: service-app
+spec:
+  selector:
+    app: pricing-service-db
+  ports:
+    - port: 27017
+      targetPort: 27017
+  clusterIP: None

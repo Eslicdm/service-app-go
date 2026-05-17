@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-app-gateway
+  namespace: service-app
+  labels:
+    app: service-app-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-app-gateway
+  template:
+    metadata:
+      labels:
+        app: service-app-gateway
+    spec:
+      serviceAccountName: service-app-sa
+      containers:
+        - name: service-app-gateway
+          image: service-app-gateway:1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8090
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "k8s"
+            - name: OTEL_SERVICE_NAME
+              value: "service-app-gateway"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_METRICS_EXPORTER
+              value: "otlp"
+            - name: OTEL_TRACES_EXPORTER
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: OTEL_TRACES_EXPORTER
+            - name: JAVA_TOOL_OPTIONS
+              value: "-javaagent:/app/agents/opentelemetry-javaagent.jar"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: REDIS_PASSWORD
+            - name: RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: RABBITMQ_USERNAME
+            - name: RABBITMQ_PW
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: RABBITMQ_PW
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8090
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8090
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+              ephemeral-storage: "256Mi"
+            limits:
+              memory: "1Gi"
+              cpu: "1500m"
+              ephemeral-storage: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-app-gateway
+  namespace: service-app
+spec:
+  type: NodePort
+  selector:
+    app: service-app-gateway
+  ports:
+    - port: 8090
+      targetPort: 8090
+      nodePort: 30090

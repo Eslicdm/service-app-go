@@ -1,0 +1,196 @@
+# OpenTelemetry Collector for metrics, traces, and logs
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: service-app
+data:
+  otel-collector-config.yml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: "0.0.0.0:4317"
+          http:
+            endpoint: "0.0.0.0:4318"
+
+      hostmetrics:
+        collection_interval: 10s
+        scrapers:
+          paging:
+            metrics:
+              system.paging.utilization:
+                enabled: true
+          cpu:
+            metrics:
+              system.cpu.utilization:
+                enabled: true
+          disk:
+          filesystem:
+            metrics:
+              system.filesystem.utilization:
+                enabled: true
+          load:
+          memory:
+          network:
+          processes:
+
+    processors:
+      batch:
+        send_batch_max_size: 100
+        send_batch_size: 10
+        timeout: 10s
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+      resource:
+        attributes:
+          - key: deployment.environment
+            value: k8s
+            action: upsert
+    
+      # Transform OTel metric names to Datadog-compatible names
+      metricstransform:
+        transforms:
+          # JVM Heap Memory
+          - include: process.runtime.jvm.memory.usage
+            action: update
+            new_name: jvm.heap_memory
+            operations:
+              - action: add_label
+                new_label: type
+                new_value: used
+          - include: process.runtime.jvm.memory.limit
+            action: update
+            new_name: jvm.heap_memory
+            operations:
+              - action: add_label
+                new_label: type
+                new_value: max
+
+          # JVM GC Duration
+          - include: process.runtime.jvm.gc.duration
+            action: update
+            new_name: jvm.gc.duration
+
+          # JVM Thread Count
+          - include: process.runtime.jvm.threads.count
+            action: update
+            new_name: jvm.thread.count
+      
+          # JVM CPU Utilization
+          - include: process.runtime.jvm.cpu.utilization
+            action: update
+            new_name: jvm.cpu.recent_utilization
+
+    exporters:
+      datadog:
+        api:
+          key: ${DD_API_KEY}
+          site: "datadoghq.com"
+        traces:
+          trace_buffer: 500
+          span_name_as_resource_name: true
+        metrics:
+          histograms:
+            mode: distributions
+            send_count_sum_metrics: true
+          sums:
+            cumulative_monotonic_mode: to_delta
+        host_metadata:
+          enabled: true
+          hostname_source: config_or_system
+          tags:
+            - "env:k8s"
+            - "source:otel-collector"
+
+    extensions:
+      health_check:
+        endpoint: "0.0.0.0:13133"
+        path: "/"
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, resource, batch]
+          exporters: [datadog]
+        metrics:
+          receivers: [ otlp, hostmetrics ]
+          processors: [ memory_limiter, resource, metricstransform, batch ]
+          exporters: [datadog]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, resource, batch]
+          exporters: [datadog]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: service-app
+  labels:
+    app: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.114.0
+          args: ["--config=/etc/otel-collector-config.yml"]
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+            - name: health-check
+              containerPort: 13133
+          env:
+            - name: DD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: DD_API_KEY
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+              ephemeral-storage: "256Mi"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+              ephemeral-storage: "512Mi"
+          volumeMounts:
+            - name: otel-collector-config-vol
+              mountPath: /etc/otel-collector-config.yml
+              subPath: otel-collector-config.yml
+      volumes:
+        - name: otel-collector-config-vol
+          configMap:
+            name: otel-collector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: service-app
+spec:
+  selector:
+    app: otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318

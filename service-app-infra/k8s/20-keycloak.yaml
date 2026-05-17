@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: service-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.3.1
+          args:
+            - start-dev
+            - --import-realm
+          ports:
+            - containerPort: 8080
+          env:
+            - name: KC_HOSTNAME
+              value: "keycloak"
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            - name: KC_HOSTNAME_STRICT_BACKCHANNEL
+              value: "false"
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            - name: REALM_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: REALM_ADMIN_PASSWORD
+            - name: REALM_MANAGER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: REALM_MANAGER_PASSWORD
+            - name: REALM_MEMBER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: REALM_MEMBER_PASSWORD
+            - name: KC_DB
+              value: "postgres"
+            - name: KC_DB_URL
+              value: "jdbc:postgresql://keycloak-db:5432/keycloakdb"
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: KC_DB_USERNAME
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: KC_DB_PASSWORD
+          volumeMounts:
+            - name: realm-config
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+          startupProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 30
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+              ephemeral-storage: "256Mi"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+              ephemeral-storage: "512Mi"
+      volumes:
+        - name: realm-config
+          configMap:
+            name: keycloak-realm-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: service-app
+spec:
+  selector:
+    app: keycloak
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30080
+  type: NodePort

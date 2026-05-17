@@ -1,0 +1,92 @@
+# Keycloak Database (PostgreSQL)
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: keycloak-db
+  namespace: service-app
+spec:
+  serviceName: keycloak-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak-db
+  template:
+    metadata:
+      labels:
+        app: keycloak-db
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: postgres
+          image: postgres:17
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: KC_DB_USERNAME
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: KC_DB_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: KC_DB_NAME
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+              ephemeral-storage: "256Mi"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+              ephemeral-storage: "512Mi"
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER"
+            initialDelaySeconds: 60
+            timeoutSeconds: 10
+            periodSeconds: 20
+            failureThreshold: 5
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+            periodSeconds: 10
+            failureThreshold: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-storage
+      spec:
+        storageClassName: local-path
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-db
+  namespace: service-app
+spec:
+  selector:
+    app: keycloak-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+  clusterIP: None

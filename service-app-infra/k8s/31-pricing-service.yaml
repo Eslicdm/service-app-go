@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pricing-service
+  namespace: service-app
+  labels:
+    app: pricing-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pricing-service
+  template:
+    metadata:
+      labels:
+        app: pricing-service
+    spec:
+      serviceAccountName: service-app-sa
+      containers:
+        - name: pricing-service
+          image: pricing-service:1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8082
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "k8s"
+            - name: OTEL_SERVICE_NAME
+              value: "pricing-service"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_METRICS_EXPORTER
+              value: "otlp"
+            - name: OTEL_TRACES_EXPORTER
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: OTEL_TRACES_EXPORTER
+            - name: JAVA_TOOL_OPTIONS
+              value: "-javaagent:/app/agents/opentelemetry-javaagent.jar"
+            - name: PRICING_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: PRICING_DB_USERNAME
+            - name: PRICING_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: PRICING_DB_PASSWORD
+            - name: PRICING_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: PRICING_DB_NAME
+            - name: RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: RABBITMQ_USERNAME
+            - name: RABBITMQ_PW
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: RABBITMQ_PW
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8082
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8082
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+              ephemeral-storage: "256Mi"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+              ephemeral-storage: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pricing-service
+  namespace: service-app
+spec:
+  selector:
+    app: pricing-service
+  ports:
+    - port: 8082
+      targetPort: 8082

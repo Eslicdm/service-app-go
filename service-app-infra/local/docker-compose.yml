@@ -1,0 +1,409 @@
+# service-app-angular port = 4200
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.1
+    container_name: keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_HOSTNAME_STRICT: false
+      KC_HOSTNAME_STRICT_BACKCHANNEL: false
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+      REALM_ADMIN_PASSWORD: ${REALM_ADMIN_PASSWORD}
+      REALM_MANAGER_PASSWORD: ${REALM_MANAGER_PASSWORD}
+      REALM_MEMBER_PASSWORD: ${REALM_MEMBER_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/${KC_DB_NAME}
+      KC_DB_USERNAME: ${KC_DB_USERNAME}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      KC_HOSTNAME: keycloak
+      # To resolve the iss with keycloak, angular and services. PowerShell:
+      # Add-Content -Path C:\Windows\System32\drivers\etc\hosts -Value "`n127.0.0.1 keycloak"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    networks:
+      - service-app-network
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/8080'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: no
+
+  keycloak-db:
+    image: postgres:16
+    container_name: keycloak-db
+    environment:
+      POSTGRES_USER: ${KC_DB_USERNAME}
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD}
+      POSTGRES_DB: ${KC_DB_NAME}
+    ports:
+      - "5434:5432"
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${KC_DB_USERNAME} -d ${KC_DB_NAME}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - service-app-network
+    restart: no
+
+  weaviate:
+    container_name: weaviate
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - '8091'
+      - --scheme
+      - http
+    image: cr.weaviate.io/semitechnologies/weaviate:1.34.1
+    ports:
+      - "8091:8091"
+      - "50051:50051" # gRPC
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      CLUSTER_HOSTNAME: 'node1'
+      DEFAULT_VECTORIZER_MODULE: 'none'
+      ENABLE_MODULES: ''
+    networks:
+      - service-app-network
+    restart: no
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - service-app-network
+    restart: no
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PW}
+    ports:
+      - "5672:5672"    # AMQP port
+      - "15672:15672"  # Management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: [ "CMD", "rabbitmqctl", "status" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - service-app-network
+    restart: no
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.3
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SERVER_ID: 1
+      KAFKA_OPTS: "-Dzookeeper.4lw.commands.whitelist=ruok"
+    healthcheck:
+      test: [ "CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok" ]
+      interval: 60s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+      start_interval: 2s
+    ports:
+      - "2181:2181"
+    networks:
+      - service-app-network
+    restart: no
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.3
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - service-app-network
+    healthcheck:
+      test: [ "CMD", "cub", "kafka-ready", "-b", "localhost:9092", "1", "1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: no
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.114.0
+    container_name: otel-collector
+    command: [ "--config=/etc/otel-collector-config.yml" ]
+    environment:
+      DD_API_KEY: ${DD_API_KEY}
+    volumes:
+      - ./otel-collector-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Prometheus metrics endpoint
+      - "13133:13133" # Health check
+    networks:
+      - service-app-network
+    healthcheck:
+      test: [ "CMD", "/otelcol-contrib", "validate", "--config=/etc/otel-collector-config.yml" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: no
+
+# member-service port = 8081
+  member-service-db:
+    image: postgres:16
+    container_name: member-service-db
+    environment:
+      POSTGRES_USER: ${MEMBER_DB_USERNAME}
+      POSTGRES_PASSWORD: ${MEMBER_DB_PASSWORD}
+      POSTGRES_DB: ${MEMBER_DB_NAME}
+    ports:
+      - "5435:5432"
+    volumes:
+      - member-service-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MEMBER_DB_USERNAME} -d ${MEMBER_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - service-app-network
+    restart: no
+
+  member-service:
+    build:
+      context: ../..
+      dockerfile: member-service/Dockerfile
+    container_name: member-service
+    depends_on:
+      member-service-db:
+        condition: service_healthy
+      service-app-registry:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      otel-collector:
+        condition: service_healthy
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - MEMBER_DB_USERNAME=${MEMBER_DB_USERNAME}
+      - MEMBER_DB_PASSWORD=${MEMBER_DB_PASSWORD}
+      - MEMBER_DB_NAME=${MEMBER_DB_NAME}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
+      - RABBITMQ_PW=${RABBITMQ_PW}
+      - MANAGEMENT_OTLP_METRICS_EXPORT_URL=http://otel-collector:4318/v1/metrics
+      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
+      - MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/logs
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8081/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - service-app-network
+    restart: no
+
+# pricing-service port = 8082
+  pricing-service-db:
+    image: mongo:7.0
+    container_name: pricing-service-db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${PRICING_DB_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${PRICING_DB_PASSWORD}
+      MONGO_INITDB_DATABASE: ${PRICING_DB_NAME}
+    ports:
+      - "27017:27017"
+    volumes:
+      - pricing-service-db-data:/data/db
+    networks:
+      - service-app-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh --quiet --username ${PRICING_DB_USERNAME} --password ${PRICING_DB_PASSWORD} --authenticationDatabase admin
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: no
+
+  pricing-service:
+    build:
+      context: ../..
+      dockerfile: pricing-service/Dockerfile
+    container_name: pricing-service
+    depends_on:
+      pricing-service-db:
+        condition: service_healthy
+      service-app-registry:
+        condition: service_healthy
+      otel-collector:
+        condition: service_healthy
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - PRICING_DB_USERNAME=${PRICING_DB_USERNAME}
+      - PRICING_DB_PASSWORD=${PRICING_DB_PASSWORD}
+      - PRICING_DB_NAME=${PRICING_DB_NAME}
+      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
+      - RABBITMQ_PW=${RABBITMQ_PW}
+      - SPRING_DATA_MONGODB_URI=mongodb://${PRICING_DB_USERNAME}:${PRICING_DB_PASSWORD}@pricing-service-db:27017/${PRICING_DB_NAME}?authSource=admin
+      - MANAGEMENT_OTLP_METRICS_EXPORT_URL=http://otel-collector:4318/v1/metrics
+      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
+      - MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/logs
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8082/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - service-app-network
+    restart: no
+
+  member-request-service:
+    build:
+      context: ../..
+      dockerfile: member-request-service/Dockerfile
+    container_name: member-request-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+      service-app-registry:
+        condition: service_healthy
+      otel-collector:
+        condition: service_healthy
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - MANAGEMENT_OTLP_METRICS_EXPORT_URL=http://otel-collector:4318/v1/metrics
+      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
+      - MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/logs
+    ports:
+      - "8084:8084"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8084/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - service-app-network
+    restart: no
+
+  service-app-gateway:
+    build:
+      context: ../..
+      dockerfile: service-app-gateway/Dockerfile
+    container_name: service-app-gateway
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      service-app-registry:
+        condition: service_healthy
+      otel-collector:
+        condition: service_healthy
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
+      - RABBITMQ_PW=${RABBITMQ_PW}
+      - MANAGEMENT_OTLP_METRICS_EXPORT_URL=http://otel-collector:4318/v1/metrics
+      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
+      - MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/logs
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8090/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - service-app-network
+    restart: no
+
+  service-app-registry:
+    build:
+      context: ../..
+      dockerfile: service-app-registry/Dockerfile
+    container_name: service-app-registry
+    depends_on:
+      otel-collector:
+        condition: service_healthy
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - MANAGEMENT_OTLP_METRICS_EXPORT_URL=http://otel-collector:4318/v1/metrics
+      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
+      - MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/logs
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8761/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - service-app-network
+    restart: no
+
+volumes:
+  keycloak-db-data:
+  member-service-db-data:
+  pricing-service-db-data:
+  redis-data:
+  rabbitmq-data:
+  kafka-data:
+  weaviate_data:
+
+networks:
+  service-app-network:
+    driver: bridge

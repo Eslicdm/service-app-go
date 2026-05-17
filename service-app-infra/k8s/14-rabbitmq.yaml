@@ -1,0 +1,89 @@
+# RabbitMQ for Messaging
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: service-app
+spec:
+  serviceName: rabbitmq
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3-management
+          ports:
+            - name: amqp
+              containerPort: 5672
+            - name: management
+              containerPort: 15672
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: RABBITMQ_USERNAME
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: RABBITMQ_PW
+            - name: RABBITMQ_NODENAME
+              value: "rabbit@rabbitmq-0"
+          volumeMounts:
+            - name: rabbitmq-storage
+              mountPath: /var/lib/rabbitmq
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "check_running"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "ping"]
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 10
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+              ephemeral-storage: "256Mi"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+              ephemeral-storage: "512Mi"
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-storage
+      spec:
+        storageClassName: local-path
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: service-app
+spec:
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+    - name: management
+      port: 15672
+      targetPort: 15672

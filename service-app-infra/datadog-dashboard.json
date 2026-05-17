@@ -1,0 +1,489 @@
+{
+  "title": "OTel Java",
+  "description": "Complete observability: RED metrics, JVM health, and service intelligence",
+  "widgets": [
+    {
+      "id": 1499972789033390,
+      "definition": {
+        "title": "📊 Throughput (req/s)",
+        "show_legend": true,
+        "legend_layout": "auto",
+        "legend_columns": [
+          "avg",
+          "max",
+          "value"
+        ],
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "sum:http.server.request.duration.count{$env,$service} by {service}.as_rate()"
+              }
+            ],
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "style": {
+              "palette": "dog_classic",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          }
+        ],
+        "yaxis": {
+          "label": "requests/sec"
+        }
+      }
+    },
+    {
+      "id": 2300026979848694,
+      "definition": {
+        "title": "🔴 Error Rate %",
+        "type": "query_value",
+        "requests": [
+          {
+            "conditional_formats": [
+              {
+                "comparator": ">=",
+                "value": 5,
+                "palette": "white_on_red"
+              },
+              {
+                "comparator": ">=",
+                "value": 1,
+                "palette": "white_on_yellow"
+              },
+              {
+                "comparator": "<",
+                "value": 1,
+                "palette": "white_on_green"
+              }
+            ],
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "sum:http.server.request.duration.count{$env,$service,http.response.status_code:5*}.as_count()",
+                "aggregator": "avg"
+              },
+              {
+                "data_source": "metrics",
+                "name": "query2",
+                "query": "sum:http.server.request.duration.count{$env,$service}.as_count()",
+                "aggregator": "avg"
+              }
+            ],
+            "formulas": [
+              {
+                "number_format": {
+                  "unit": {
+                    "label": "%",
+                    "type": "custom_unit_label"
+                  }
+                },
+                "formula": "(query1 / query2) * 100"
+              }
+            ]
+          }
+        ],
+        "autoscale": true,
+        "text_align": "center",
+        "precision": 2
+      }
+    },
+    {
+      "id": 8187438126951967,
+      "definition": {
+        "title": "⏱️ Latency Percentiles (ms)",
+        "show_legend": true,
+        "legend_layout": "auto",
+        "legend_columns": [
+          "avg",
+          "max",
+          "value"
+        ],
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "p50:http.server.request.duration{$env,$service} by {service}"
+              }
+            ],
+            "formulas": [
+              {
+                "alias": "p50",
+                "formula": "query1"
+              }
+            ],
+            "style": {
+              "palette": "green"
+            },
+            "display_type": "line"
+          },
+          {
+            "response_format": "timeseries",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query2",
+                "query": "p95:http.server.request.duration{$env,$service} by {service}"
+              }
+            ],
+            "formulas": [
+              {
+                "alias": "p95",
+                "formula": "query2"
+              }
+            ],
+            "style": {
+              "palette": "orange",
+              "line_width": "thick"
+            },
+            "display_type": "line"
+          },
+          {
+            "response_format": "timeseries",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query3",
+                "query": "p99:http.server.request.duration{$env,$service} by {service}"
+              }
+            ],
+            "formulas": [
+              {
+                "alias": "p99",
+                "formula": "query3"
+              }
+            ],
+            "style": {
+              "palette": "red",
+              "line_type": "dashed"
+            },
+            "display_type": "line"
+          }
+        ],
+        "yaxis": {
+          "label": "Duration (ms)"
+        },
+        "markers": [
+          {
+            "label": "SLO Target",
+            "value": "y = 500",
+            "display_type": "error dashed"
+          }
+        ]
+      }
+    },
+    {
+      "id": 2619369122097990,
+      "definition": {
+        "title": "💾 JVM Heap Memory",
+        "show_legend": true,
+        "legend_layout": "auto",
+        "legend_columns": [
+          "avg",
+          "max",
+          "value"
+        ],
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "used",
+                "query": "avg:jvm.heap_memory{$env,$service} by {service}"
+              }
+            ],
+            "formulas": [
+              {
+                "alias": "Used",
+                "formula": "used"
+              }
+            ],
+            "style": {
+              "palette": "blue",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "area"
+          },
+          {
+            "response_format": "timeseries",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "max",
+                "query": "avg:jvm.heap_memory_max{$env,$service} by {service}"
+              }
+            ],
+            "formulas": [
+              {
+                "alias": "Max",
+                "formula": "max"
+              }
+            ],
+            "style": {
+              "palette": "grey",
+              "line_type": "dashed",
+              "line_width": "thick"
+            },
+            "display_type": "line"
+          }
+        ],
+        "yaxis": {
+          "label": "Memory"
+        }
+      }
+    },
+    {
+      "id": 504494053444676,
+      "definition": {
+        "title": "🗑️ GC Pause Time",
+        "show_legend": true,
+        "legend_layout": "auto",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "sum:jvm.gc.duration{$env,$service} by {service}.as_count()"
+              }
+            ],
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "style": {
+              "palette": "warm"
+            },
+            "display_type": "bars"
+          }
+        ],
+        "yaxis": {
+          "label": "Pauses"
+        }
+      }
+    },
+    {
+      "id": 8608585195534986,
+      "definition": {
+        "title": "🧵 Thread Count",
+        "show_legend": true,
+        "legend_layout": "auto",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "avg:jvm.thread.count{$env,$service} by {service}"
+              }
+            ],
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "style": {
+              "palette": "purple"
+            },
+            "display_type": "line"
+          }
+        ],
+        "yaxis": {
+          "label": "Threads"
+        }
+      }
+    },
+    {
+      "id": 7239832843729051,
+      "definition": {
+        "title": "🔥 JVM CPU Utilization",
+        "show_legend": true,
+        "legend_layout": "auto",
+        "legend_columns": [
+          "avg",
+          "max",
+          "value"
+        ],
+        "type": "timeseries",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "alias": "CPU %",
+                "formula": "query1 * 100",
+                "number_format": {
+                  "unit": {
+                    "type": "canonical_unit",
+                    "unit_name": "percent"
+                  }
+                }
+              }
+            ],
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "avg:jvm.cpu.recent_utilization{$env,$service} by {service}"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "dog_classic",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "line"
+          }
+        ],
+        "yaxis": {
+          "label": "CPU %"
+        }
+      }
+    },
+    {
+      "id": 7867515622467976,
+      "definition": {
+        "title": "🐌 Top 5 Slowest Endpoints (p95)",
+        "type": "query_table",
+        "requests": [
+          {
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "query1",
+                "query": "p95:http.server.request.duration{$env,$service} by {http.route}",
+                "aggregator": "avg"
+              }
+            ],
+            "response_format": "scalar",
+            "sort": {
+              "count": 5,
+              "order_by": [
+                {
+                  "type": "formula",
+                  "index": 0,
+                  "order": "desc"
+                }
+              ]
+            },
+            "formulas": [
+              {
+                "alias": "Latency (ms)",
+                "cell_display_mode": "bar",
+                "formula": "query1"
+              }
+            ]
+          }
+        ],
+        "has_search_bar": "auto"
+      }
+    },
+    {
+      "id": 8000000000000002,
+      "definition": {
+        "title": "🚦 Service Health Overview",
+        "type": "query_table",
+        "requests": [
+          {
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "requests",
+                "query": "sum:http.server.request.duration.count{$env,$service} by {service}.as_count()",
+                "aggregator": "sum"
+              },
+              {
+                "data_source": "metrics",
+                "name": "errors",
+                "query": "sum:http.server.request.duration.count{$env,$service,http.response.status_code:5*} by {service}.as_count()",
+                "aggregator": "sum"
+              },
+              {
+                "data_source": "metrics",
+                "name": "latency",
+                "query": "p95:http.server.request.duration{$env,$service} by {service}",
+                "aggregator": "avg"
+              }
+            ],
+            "response_format": "scalar",
+            "formulas": [
+              {
+                "alias": "Requests",
+                "formula": "requests",
+                "cell_display_mode": "number"
+              },
+              {
+                "alias": "Errors",
+                "formula": "errors",
+                "cell_display_mode": "number"
+              },
+              {
+                "alias": "Error %",
+                "formula": "(errors / requests) * 100",
+                "cell_display_mode": "bar",
+                "number_format": {
+                  "unit": {
+                    "type": "custom_unit_label",
+                    "label": "%"
+                  }
+                }
+              },
+              {
+                "alias": "p95 (ms)",
+                "formula": "latency",
+                "cell_display_mode": "bar"
+              }
+            ]
+          }
+        ],
+        "has_search_bar": "auto"
+      }
+    }
+  ],
+  "template_variables": [
+    {
+      "name": "env",
+      "prefix": "env",
+      "available_values": [
+        "local",
+        "dev",
+        "staging",
+        "prod"
+      ],
+      "default": "*"
+    },
+    {
+      "name": "service",
+      "prefix": "service",
+      "available_values": [],
+      "default": "*"
+    }
+  ],
+  "layout_type": "ordered",
+  "notify_list": [],
+  "reflow_type": "auto",
+  "pause_auto_refresh": false
+}

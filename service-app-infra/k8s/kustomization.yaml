@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: service-app
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+secretGenerator:
+  - name: service-app-secrets
+    envs:
+      - .env.secrets
+
+resources:
+  - 00-namespace.yaml
+  - 01-keycloak-config.yaml
+  - 02-rbac.yaml
+#  - 10-keycloak-db.yaml
+#  - 11-member-service-db.yaml
+#  - 12-pricing-service-db.yaml
+#  - 13-redis.yaml
+#  - 14-rabbitmq.yaml
+#  - 15-kafka-zookeeper.yaml
+#  - 20-keycloak.yaml
+#  - 30-member-service.yaml
+#  - 31-pricing-service.yaml
+#  - 32-member-request-service.yaml
+#  - 33-service-app-gateway.yaml
+#  - 40-otel-collector.yaml

@@ -1,0 +1,8 @@
+# @name=submitMemberRequest
+POST {{baseUrl}}/member-requests
+Content-Type: application/json
+
+{
+  "email": "new.prospect@example.com",
+  "serviceType": "FULL_PRICE"
+}

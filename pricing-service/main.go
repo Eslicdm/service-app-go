@@ -26,93 +26,89 @@ const (
 	dbUsernameEnv = "PRICING_DB_USERNAME"
 	dbPasswordEnv = "PRICING_DB_PASSWORD"
 	dbNameEnv     = "PRICING_DB_NAME"
-	mongoHost     = "localhost" // This should match the service name in docker-compose
+	defaultMongo  = "localhost"
 	mongoPort     = "27017"
-	port          = ":8082" // Port for the Gin server, aligned with Java service
 	errEnvNotSet  = "Environment variable %s not set"
 )
 
 func main() {
-	err := godotenv.Load()
+	_ = godotenv.Load()
 
-	// --- Set up graceful shutdown ---
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// --- Environment Variable Loading ---
 	dbUsername := os.Getenv(dbUsernameEnv)
+	dbPassword := os.Getenv(dbPasswordEnv)
+	dbName := os.Getenv(dbNameEnv)
 	if dbUsername == "" {
 		log.Fatalf(errEnvNotSet, dbUsernameEnv)
 	}
-	dbPassword := os.Getenv(dbPasswordEnv)
 	if dbPassword == "" {
 		log.Fatalf(errEnvNotSet, dbPasswordEnv)
 	}
-	dbName := os.Getenv(dbNameEnv)
 	if dbName == "" {
 		log.Fatalf(errEnvNotSet, dbNameEnv)
 	}
+	mongoHost := envOrDefault("MONGO_HOST", defaultMongo)
 
-	// --- MongoDB Connection ---
-	mongoURI := fmt.Sprintf("mongodb://%s:%s@%s:%s/%s?authSource=admin", dbUsername, dbPassword, mongoHost, mongoPort, dbName)
-	clientOptions := options.Client().ApplyURI(mongoURI)
+	mongoURI := fmt.Sprintf("mongodb://%s:%s@%s:%s/%s?authSource=admin",
+		dbUsername, dbPassword, mongoHost, mongoPort, dbName)
+	clientOpts := options.Client().ApplyURI(mongoURI)
 	mongoCtx, mongoCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer mongoCancel()
 
-	client, err := mongo.Connect(mongoCtx, clientOptions)
+	client, err := mongo.Connect(mongoCtx, clientOpts)
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 	defer func() {
-		if err = client.Disconnect(mongoCtx); err != nil {
-			log.Fatalf("Failed to disconnect from MongoDB: %v", err)
+		if derr := client.Disconnect(context.Background()); derr != nil {
+			log.Printf("Failed to disconnect from MongoDB: %v", derr)
 		}
-		fmt.Println("Disconnected from MongoDB")
 	}()
 
-	err = client.Ping(mongoCtx, nil)
-	if err != nil {
+	if err := client.Ping(mongoCtx, nil); err != nil {
 		log.Fatalf("Failed to ping MongoDB: %v", err)
 	}
 	fmt.Println("Successfully connected to MongoDB!")
 
-	// --- Dependency Injection ---
 	priceRepo := repository.NewMongoPriceRepository(client, dbName)
-	priceService := service.NewPriceService(priceRepo)
 
-	// --- RabbitMQ Consumer Setup ---
-	rmqConsumer, err := messaging.NewRabbitMQConsumer(priceService)
+	publisher, err := messaging.NewPricePublisher()
 	if err != nil {
-		log.Fatalf("Failed to initialize RabbitMQ consumer: %v", err)
+		log.Printf("WARN: RabbitMQ publisher not available: %v (price updates will not be published)", err)
+		publisher = nil
 	}
-	defer rmqConsumer.Close() // Ensure consumer connection is closed on exit
+	defer func() {
+		if publisher != nil {
+			publisher.Close()
+		}
+	}()
 
-	// Start consuming messages in a goroutine
-	go rmqConsumer.StartConsuming(ctx)
-
-	// --- Gin Web Server Setup ---
-	router := gin.Default()
-
-	// Add global exception handler middleware
-	router.Use(exception.GlobalExceptionHandler())
-
-	// Initialize security config and JWT middleware
-	securityConfig := config.NewSecurityConfig("http://keycloak:8080/realms/service-app-realm")
-	authMiddleware := securityConfig.AuthMiddleware()
-
+	priceService := service.NewPriceService(priceRepo, publisher)
 	priceController := controller.NewPriceController(priceService)
 
-	pricesGroup := router.Group("/api/v1/prices")
-	pricesGroup.Use(authMiddleware) // Apply AuthMiddleware to all price routes
+	issuer := envOrDefault("KEYCLOAK_REALM_URL", "http://keycloak:8080/realms/service-app-realm")
+	securityConfig := config.NewSecurityConfig(issuer)
+	authMiddleware := securityConfig.AuthMiddleware()
+
+	router := gin.Default()
+	router.Use(exception.GlobalExceptionHandler())
+
+	router.GET("/actuator/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "UP"})
+	})
+
+	prices := router.Group("/api/v1/prices")
+	prices.Use(authMiddleware)
 	{
-		pricesGroup.POST("", priceController.CreatePrice)
-		pricesGroup.GET("/:id", priceController.GetPriceByID)
-		pricesGroup.GET("", priceController.GetAllPrices)
-		pricesGroup.PUT("/:id", priceController.UpdatePrice)
-		pricesGroup.DELETE("/:id", priceController.DeletePrice)
+		// GET /api/v1/prices is public (allowed in isPublicEndpoint by method+path).
+		prices.GET("", priceController.GetAllPrices)
+		// PUT /api/v1/prices/:priceType requires manager/admin.
+		prices.PUT("/:priceType", securityConfig.RequireRole("manager", "admin"), priceController.UpdatePrice)
 	}
 
-	// --- Start Gin server in a goroutine ---
+	port := envOrDefault("PORT", ":8082")
 	go func() {
 		fmt.Printf("Pricing service starting on port %s\n", port)
 		if err := router.Run(port); err != nil {
@@ -120,7 +116,13 @@ func main() {
 		}
 	}()
 
-	// --- Wait for interrupt signal ---
 	<-ctx.Done()
 	log.Println("Shutting down pricing service gracefully...")
+}
+
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

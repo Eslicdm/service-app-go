@@ -17,15 +17,15 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o member-service ./member-service
 # Stage 2: Create the final lightweight image
 FROM alpine:latest
 
-# Install CA certificates required for HTTPS calls (e.g., fetching JWKS)
-RUN apk --no-cache add ca-certificates
+# Install CA certificates (HTTPS/JWKS) and curl (docker-compose healthcheck)
+RUN apk --no-cache add ca-certificates curl
 
 WORKDIR /root/
 
 # Copy the binary from the builder stage
 COPY --from=builder /app/member-service .
 
-# Expose the port the app runs on (default for Gin is 8080)
-EXPOSE 8090
+# Expose the port the app runs on (aligned with the Spring member-service)
+EXPOSE 8081
 
 CMD ["./member-service"]

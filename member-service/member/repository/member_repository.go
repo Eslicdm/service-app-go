@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"errors"
+
 	"service-app-go/member-service/core/entity"
 
 	"gorm.io/gorm"
@@ -27,6 +29,19 @@ func (r *MemberRepository) FindByEmail(email string) (*entity.Member, error) {
 		return nil, result.Error
 	}
 	return &member, nil
+}
+
+// EmailExists reports whether a member with the given email already exists.
+// Used by the Kafka request consumer to skip requests for existing members.
+func (r *MemberRepository) EmailExists(email string) (bool, error) {
+	_, err := r.FindByEmail(email)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	return false, err
 }
 
 func (r *MemberRepository) FindByID(id uint) (*entity.Member, error) {

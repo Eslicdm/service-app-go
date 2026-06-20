@@ -23,8 +23,6 @@ spec:
           ports:
             - containerPort: 8082
           env:
-            - name: SPRING_PROFILES_ACTIVE
-              value: "k8s"
             - name: OTEL_SERVICE_NAME
               value: "pricing-service"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -36,8 +34,7 @@ spec:
                 secretKeyRef:
                   name: service-app-secrets
                   key: OTEL_TRACES_EXPORTER
-            - name: JAVA_TOOL_OPTIONS
-              value: "-javaagent:/app/agents/opentelemetry-javaagent.jar"
+            # Pricing DB (MongoDB)
             - name: PRICING_DB_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -53,6 +50,13 @@ spec:
                 secretKeyRef:
                   name: service-app-secrets
                   key: PRICING_DB_NAME
+            - name: MONGO_HOST
+              value: "pricing-service-db"
+            # RabbitMQ (price update publisher)
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: RABBITMQ_PORT
+              value: "5672"
             - name: RABBITMQ_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -63,25 +67,30 @@ spec:
                 secretKeyRef:
                   name: service-app-secrets
                   key: RABBITMQ_PW
+            # Keycloak
+            - name: KEYCLOAK_REALM_URL
+              value: "http://keycloak:8080/realms/service-app-realm"
+            - name: PORT
+              value: ":8082"
           readinessProbe:
             httpGet:
-              path: /actuator/health/readiness
+              path: /actuator/health
               port: 8082
             initialDelaySeconds: 20
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /actuator/health/liveness
+              path: /actuator/health
               port: 8082
             initialDelaySeconds: 60
             periodSeconds: 15
           resources:
             requests:
-              memory: "512Mi"
+              memory: "256Mi"
               cpu: "250m"
               ephemeral-storage: "256Mi"
             limits:
-              memory: "1Gi"
+              memory: "512Mi"
               cpu: "1000m"
               ephemeral-storage: "512Mi"
 ---

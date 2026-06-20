@@ -1,4 +1,6 @@
-# service-app-angular port = 4200
+# Go services (member-service:8081, pricing-service:8082) + shared infrastructure.
+# The Spring service-app-registry is intentionally dropped: service discovery uses
+# Docker Compose service-name DNS (see docs/adr/0001-drop-eureka-align-go-services.md).
 services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.3.1
@@ -52,32 +54,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - service-app-network
-    restart: no
-
-  weaviate:
-    container_name: weaviate
-    command:
-      - --host
-      - 0.0.0.0
-      - --port
-      - '8091'
-      - --scheme
-      - http
-    image: cr.weaviate.io/semitechnologies/weaviate:1.34.1
-    ports:
-      - "8091:8091"
-      - "50051:50051" # gRPC
-    volumes:
-      - weaviate_data:/var/lib/weaviate
-    environment:
-      QUERY_DEFAULTS_LIMIT: 25
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
-      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
-      CLUSTER_HOSTNAME: 'node1'
-      DEFAULT_VECTORIZER_MODULE: 'none'
-      ENABLE_MODULES: ''
     networks:
       - service-app-network
     restart: no
@@ -189,7 +165,7 @@ services:
       start_period: 30s
     restart: no
 
-# member-service port = 8081
+  # member-service port = 8081
   member-service-db:
     image: postgres:16
     container_name: member-service-db
@@ -218,23 +194,35 @@ services:
     depends_on:
       member-service-db:
         condition: service_healthy
-      service-app-registry:
+      redis:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
       otel-collector:
         condition: service_healthy
     environment:
-      - SPRING_PROFILES_ACTIVE=docker
       - MEMBER_DB_USERNAME=${MEMBER_DB_USERNAME}
       - MEMBER_DB_PASSWORD=${MEMBER_DB_PASSWORD}
       - MEMBER_DB_NAME=${MEMBER_DB_NAME}
+      - MEMBER_DB_HOST=member-service-db
+      - MEMBER_DB_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
       - RABBITMQ_PW=${RABBITMQ_PW}
-      - MANAGEMENT_OTLP_METRICS_EXPORT_URL=http://otel-collector:4318/v1/metrics
-      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
-      - MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/logs
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC=member.requests.topic
+      - KAFKA_GROUP_ID=member-service-group
+      - PRICING_SERVICE_URL=http://pricing-service:8082/api/v1
+      - KEYCLOAK_REALM_URL=http://keycloak:8080/realms/service-app-realm
+      - PORT=:8081
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=member-service
     ports:
       - "8081:8081"
     healthcheck:
@@ -247,7 +235,7 @@ services:
       - service-app-network
     restart: no
 
-# pricing-service port = 8082
+  # pricing-service port = 8082
   pricing-service-db:
     image: mongo:7.0
     container_name: pricing-service-db
@@ -277,116 +265,27 @@ services:
     depends_on:
       pricing-service-db:
         condition: service_healthy
-      service-app-registry:
+      rabbitmq:
         condition: service_healthy
       otel-collector:
         condition: service_healthy
     environment:
-      - SPRING_PROFILES_ACTIVE=docker
       - PRICING_DB_USERNAME=${PRICING_DB_USERNAME}
       - PRICING_DB_PASSWORD=${PRICING_DB_PASSWORD}
       - PRICING_DB_NAME=${PRICING_DB_NAME}
+      - MONGO_HOST=pricing-service-db
       - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
       - RABBITMQ_PW=${RABBITMQ_PW}
-      - SPRING_DATA_MONGODB_URI=mongodb://${PRICING_DB_USERNAME}:${PRICING_DB_PASSWORD}@pricing-service-db:27017/${PRICING_DB_NAME}?authSource=admin
-      - MANAGEMENT_OTLP_METRICS_EXPORT_URL=http://otel-collector:4318/v1/metrics
-      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
-      - MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/logs
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - KEYCLOAK_REALM_URL=http://keycloak:8080/realms/service-app-realm
+      - PORT=:8082
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=pricing-service
     ports:
       - "8082:8082"
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8082/actuator/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    networks:
-      - service-app-network
-    restart: no
-
-  member-request-service:
-    build:
-      context: ../..
-      dockerfile: member-request-service/Dockerfile
-    container_name: member-request-service
-    depends_on:
-      kafka:
-        condition: service_healthy
-      service-app-registry:
-        condition: service_healthy
-      otel-collector:
-        condition: service_healthy
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - MANAGEMENT_OTLP_METRICS_EXPORT_URL=http://otel-collector:4318/v1/metrics
-      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
-      - MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/logs
-    ports:
-      - "8084:8084"
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8084/actuator/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    networks:
-      - service-app-network
-    restart: no
-
-  service-app-gateway:
-    build:
-      context: ../..
-      dockerfile: service-app-gateway/Dockerfile
-    container_name: service-app-gateway
-    depends_on:
-      keycloak:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      service-app-registry:
-        condition: service_healthy
-      otel-collector:
-        condition: service_healthy
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
-      - RABBITMQ_PW=${RABBITMQ_PW}
-      - MANAGEMENT_OTLP_METRICS_EXPORT_URL=http://otel-collector:4318/v1/metrics
-      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
-      - MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/logs
-    ports:
-      - "8090:8090"
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8090/actuator/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    networks:
-      - service-app-network
-    restart: no
-
-  service-app-registry:
-    build:
-      context: ../..
-      dockerfile: service-app-registry/Dockerfile
-    container_name: service-app-registry
-    depends_on:
-      otel-collector:
-        condition: service_healthy
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - MANAGEMENT_OTLP_METRICS_EXPORT_URL=http://otel-collector:4318/v1/metrics
-      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
-      - MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/logs
-    ports:
-      - "8761:8761"
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8761/actuator/health" ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -402,7 +301,6 @@ volumes:
   redis-data:
   rabbitmq-data:
   kafka-data:
-  weaviate_data:
 
 networks:
   service-app-network:

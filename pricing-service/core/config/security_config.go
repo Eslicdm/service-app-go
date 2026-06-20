@@ -35,7 +35,7 @@ func NewSecurityConfig(issuerURI string) *SecurityConfig {
 // AuthMiddleware is a Gin middleware for JWT authentication using JWKS.
 func (s *SecurityConfig) AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if s.isPublicEndpoint(c.Request.URL.Path) {
+		if s.isPublicEndpoint(c.Request.Method, c.Request.URL.Path) {
 			c.Next()
 			return
 		}
@@ -74,12 +74,50 @@ func (s *SecurityConfig) AuthMiddleware() gin.HandlerFunc {
 		}
 
 		c.Set("claims", claims)
+		c.Set("manager_id", subClaim(claims))
+		c.Set("roles", s.ExtractRoles(claims))
 		c.Next()
 	}
 }
 
-// isPublicEndpoint checks if the given path is a public endpoint that does not require authentication.
-func (s *SecurityConfig) isPublicEndpoint(path string) bool {
+// RequireRole returns a Gin middleware that allows access only when the
+// authenticated JWT carries one of the allowed Keycloak realm roles. It
+// replaces Spring's @PreAuthorize("hasRole('manager') or hasRole('admin')").
+func (s *SecurityConfig) RequireRole(allowed ...string) gin.HandlerFunc {
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, a := range allowed {
+		allowedSet["ROLE_"+a] = struct{}{}
+	}
+	return func(c *gin.Context) {
+		raw, ok := c.Get("roles")
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden: no roles"})
+			return
+		}
+		roles, _ := raw.([]string)
+		for _, r := range roles {
+			if _, ok := allowedSet[r]; ok {
+				c.Next()
+				return
+			}
+		}
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden: insufficient role"})
+	}
+}
+
+// subClaim extracts the JWT "sub" claim as a string (the Keycloak user id,
+// used as managerId in the Spring reference).
+func subClaim(claims map[string]interface{}) string {
+	if v, ok := claims["sub"].(string); ok {
+		return v
+	}
+	return ""
+}
+
+// isPublicEndpoint checks if the given request is a public endpoint that does
+// not require authentication. Mirrors the Spring SecurityConfig: GET /api/v1/prices
+// is public, swagger/actuator health are public.
+func (s *SecurityConfig) isPublicEndpoint(method, path string) bool {
 	publicPrefixes := []string{
 		"/v3/api-docs",
 		"/swagger-ui",
@@ -101,6 +139,11 @@ func (s *SecurityConfig) isPublicEndpoint(path string) bool {
 		if path == match {
 			return true
 		}
+	}
+
+	// GET /api/v1/prices is public (Spring: permitAll for GET prices).
+	if method == http.MethodGet && path == "/api/v1/prices" {
+		return true
 	}
 
 	return false

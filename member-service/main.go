@@ -1,69 +1,146 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
-	"service-app-go/member-service/core/config"
+	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+
+	coreconfig "service-app-go/member-service/core/config"
 	"service-app-go/member-service/core/entity"
 	"service-app-go/member-service/core/exception"
 	"service-app-go/member-service/member/controller"
 	"service-app-go/member-service/member/repository"
 	"service-app-go/member-service/member/service"
-
-	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
+	priceController "service-app-go/member-service/pricing/controller"
+	priceClient "service-app-go/member-service/pricing/client"
+	priceconfig "service-app-go/member-service/pricing/config"
+	priceService "service-app-go/member-service/pricing/service"
+	requestController "service-app-go/member-service/request/controller"
+	requestService "service-app-go/member-service/request/service"
 )
 
 func main() {
 	_ = godotenv.Load()
 
-	dsn := fmt.Sprintf("host=localhost user=%s password=%s dbname=%s "+
-		"port=5435 sslmode=disable TimeZone=UTC",
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// --- PostgreSQL (GORM) ---
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=UTC",
+		envOrDefault("MEMBER_DB_HOST", "localhost"),
 		os.Getenv("MEMBER_DB_USERNAME"),
 		os.Getenv("MEMBER_DB_PASSWORD"),
 		os.Getenv("MEMBER_DB_NAME"),
+		envOrDefault("MEMBER_DB_PORT", "5435"),
 	)
-
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-
 	if err := db.AutoMigrate(&entity.Member{}); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
 
-	// Dependency Injection
+	// --- Redis ---
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     envOrDefault("REDIS_HOST", "localhost") + ":" + envOrDefault("REDIS_PORT", "6379"),
+		Password: os.Getenv("REDIS_PASSWORD"),
+	})
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Printf("WARN: Redis ping failed: %v (price cache/requests will be degraded)", err)
+	}
+
+	// --- Dependency injection: member sub-domain ---
 	memberRepo := repository.NewMemberRepository(db)
 	memberService := service.NewMemberService(memberRepo)
 	memberController := controller.NewMemberController(memberService)
-	securityConfig := config.NewSecurityConfig("http://keycloak:8080/realms/service-app-realm")
 
+	// --- Dependency injection: pricing sub-domain (cache + consumer + REST client) ---
+	pricingClient := priceClient.NewPricingServiceClient(envOrDefault("PRICING_SERVICE_URL", "http://localhost:8082/api/v1"))
+	priceCache := priceService.NewPriceCacheService(redisClient, pricingClient)
+
+	var priceListener *priceService.PriceUpdateListener
+	rmq, err := priceconfig.NewRabbitMQConfig()
+	if err != nil {
+		log.Printf("WARN: RabbitMQ not available: %v (price cache will rely on REST fallback)", err)
+	} else {
+		defer rmq.Close()
+		priceListener = priceService.NewPriceUpdateListener(rmq, priceCache)
+		go func() {
+			if lerr := priceListener.StartConsuming(ctx); lerr != nil {
+				log.Printf("Price update listener stopped: %v", lerr)
+			}
+		}()
+	}
+	priceCtrl := priceController.NewPriceController(priceCache)
+
+	// --- Dependency injection: request sub-domain (Kafka consumer) ---
+	requestSvc := requestService.NewMemberRequestService(redisClient)
+	requestCtrl := requestController.NewMemberRequestController(requestSvc)
+	requestConsumer := requestService.NewMemberRequestConsumer(redisClient, memberRepo)
+	go requestConsumer.StartConsuming(ctx)
+	defer func() {
+		if cerr := requestConsumer.Close(); cerr != nil {
+			log.Printf("Error closing kafka reader: %v", cerr)
+		}
+	}()
+
+	// --- Security ---
+	issuer := envOrDefault("KEYCLOAK_REALM_URL", "http://keycloak:8080/realms/service-app-realm")
+	securityConfig := coreconfig.NewSecurityConfig(issuer)
+	authMiddleware := securityConfig.AuthMiddleware()
+
+	// --- HTTP server ---
 	r := gin.Default()
-
 	r.Use(exception.GlobalErrorHandler())
 
-	// Health check
 	r.GET("/actuator/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "UP"})
 	})
 
 	api := r.Group("/api/v1/members")
-	api.Use(securityConfig.AuthMiddleware())
+	api.Use(authMiddleware)
 	{
-		api.GET("", memberController.GetAllMembersByManagerID)
-		api.GET("/:memberId", memberController.GetMemberByID)
-		api.POST("", memberController.CreateMember)
-		api.PUT("/:memberId", memberController.UpdateMember)
-		api.DELETE("/:memberId", memberController.DeleteMember)
+		// Member CRUD: manager/admin only (Spring @PreAuthorize).
+		members := api.Group("")
+		members.Use(securityConfig.RequireRole("manager", "admin"))
+		{
+			members.GET("", memberController.GetAllMembersByManagerID)
+			members.GET("/:memberId", memberController.GetMemberByID)
+			members.POST("", memberController.CreateMember)
+			members.PUT("/:memberId", memberController.UpdateMember)
+			members.DELETE("/:memberId", memberController.DeleteMember)
+		}
+		// Prices (cached) and pending requests: authenticated.
+		api.GET("/prices", priceCtrl.GetAllPrices)
+		api.GET("/requests", requestCtrl.GetNewMemberRequests)
 	}
 
-	if err := r.Run(":8090"); err != nil {
-		log.Fatal(err)
+	port := envOrDefault("PORT", ":8081")
+	go func() {
+		fmt.Printf("Member service starting on port %s\n", port)
+		if err := r.Run(port); err != nil {
+			log.Fatalf("Failed to run server: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("Shutting down member service gracefully...")
+}
+
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
+	return def
 }

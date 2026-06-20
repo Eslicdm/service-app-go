@@ -25,7 +25,7 @@ WORKDIR /root/
 # Copy the binary from the builder stage
 COPY --from=builder /app/member-service .
 
-# Expose the port the app runs on (default for Gin is 8080)
-EXPOSE 8090
+# Expose the port the app runs on (aligned with the Spring member-service)
+EXPOSE 8081
 
 CMD ["./member-service"]

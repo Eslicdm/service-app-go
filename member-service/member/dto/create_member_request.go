@@ -10,5 +10,5 @@ type CreateMemberRequest struct {
 	Email       string             `json:"email" binding:"required,email"`
 	BirthDate   time.Time          `json:"birthDate" binding:"required" time_format:"2006-01-02"`
 	Photo       string             `json:"photo"`
-	ServiceType entity.ServiceType `json:"serviceType" binding:"required"`
+	ServiceType entity.ServiceType `json:"serviceType" binding:"required,oneof=free half-price full-price"`
 }

@@ -59,8 +59,46 @@ func (s *SecurityConfig) AuthMiddleware() gin.HandlerFunc {
 		}
 
 		c.Set("claims", token.Claims)
+		if claims, ok := token.Claims.(jwt.MapClaims); ok {
+			c.Set("manager_id", subClaim(claims))
+			c.Set("roles", s.ExtractRoles(claims))
+		}
 		c.Next()
 	}
+}
+
+// RequireRole returns a Gin middleware that allows access only when the
+// authenticated JWT carries one of the allowed Keycloak realm roles. It
+// replaces Spring's @PreAuthorize("hasRole('manager') or hasRole('admin')").
+func (s *SecurityConfig) RequireRole(allowed ...string) gin.HandlerFunc {
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, a := range allowed {
+		allowedSet["ROLE_"+a] = struct{}{}
+	}
+	return func(c *gin.Context) {
+		raw, ok := c.Get("roles")
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden: no roles"})
+			return
+		}
+		roles, _ := raw.([]string)
+		for _, r := range roles {
+			if _, ok := allowedSet[r]; ok {
+				c.Next()
+				return
+			}
+		}
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden: insufficient role"})
+	}
+}
+
+// subClaim extracts the JWT "sub" claim as a string (the Keycloak user id,
+// used as managerId in the Spring reference).
+func subClaim(claims jwt.MapClaims) string {
+	if v, ok := claims["sub"].(string); ok {
+		return v
+	}
+	return ""
 }
 
 func (s *SecurityConfig) isPublicEndpoint(path string) bool {

@@ -23,8 +23,6 @@ spec:
           ports:
             - containerPort: 8081
           env:
-            - name: SPRING_PROFILES_ACTIVE
-              value: "k8s"
             - name: OTEL_SERVICE_NAME
               value: "member-service"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -36,8 +34,7 @@ spec:
                 secretKeyRef:
                   name: service-app-secrets
                   key: OTEL_TRACES_EXPORTER
-            - name: JAVA_TOOL_OPTIONS
-              value: "-javaagent:/app/agents/opentelemetry-javaagent.jar"
+            # Member DB (PostgreSQL)
             - name: MEMBER_DB_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -53,11 +50,25 @@ spec:
                 secretKeyRef:
                   name: service-app-secrets
                   key: MEMBER_DB_NAME
+            - name: MEMBER_DB_HOST
+              value: "member-service-db"
+            - name: MEMBER_DB_PORT
+              value: "5432"
+            # Redis
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: service-app-secrets
                   key: REDIS_PASSWORD
+            # RabbitMQ (price update consumer)
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: RABBITMQ_PORT
+              value: "5672"
             - name: RABBITMQ_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -68,25 +79,40 @@ spec:
                 secretKeyRef:
                   name: service-app-secrets
                   key: RABBITMQ_PW
+            # Kafka (member request consumer)
+            - name: KAFKA_BROKERS
+              value: "kafka:9092"
+            - name: KAFKA_TOPIC
+              value: "member.requests.topic"
+            - name: KAFKA_GROUP_ID
+              value: "member-service-group"
+            # pricing-service URL (REST client for cache fallback)
+            - name: PRICING_SERVICE_URL
+              value: "http://pricing-service:8082/api/v1"
+            # Keycloak
+            - name: KEYCLOAK_REALM_URL
+              value: "http://keycloak:8080/realms/service-app-realm"
+            - name: PORT
+              value: ":8081"
           readinessProbe:
             httpGet:
-              path: /actuator/health/readiness
+              path: /actuator/health
               port: 8081
             initialDelaySeconds: 20
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /actuator/health/liveness
+              path: /actuator/health
               port: 8081
             initialDelaySeconds: 60
             periodSeconds: 15
           resources:
             requests:
-              memory: "512Mi"
+              memory: "256Mi"
               cpu: "250m"
               ephemeral-storage: "256Mi"
             limits:
-              memory: "1Gi"
+              memory: "512Mi"
               cpu: "1000m"
               ephemeral-storage: "512Mi"
 ---

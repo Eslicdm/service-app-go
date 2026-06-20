@@ -17,8 +17,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o member-service ./member-service
 # Stage 2: Create the final lightweight image
 FROM alpine:latest
 
-# Install CA certificates required for HTTPS calls (e.g., fetching JWKS)
-RUN apk --no-cache add ca-certificates
+# Install CA certificates (HTTPS/JWKS) and curl (docker-compose healthcheck)
+RUN apk --no-cache add ca-certificates curl
 
 WORKDIR /root/
 

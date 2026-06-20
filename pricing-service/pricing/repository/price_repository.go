@@ -6,11 +6,10 @@ import (
 	"service-app-go/pricing-service/core/entity"
 )
 
-// PriceRepository defines the interface for price data operations.
+// PriceRepository defines the interface for price data operations, mirroring the
+// Spring pricing-service which only needs findAll and findByPriceType (+ upsert save).
 type PriceRepository interface {
 	Save(ctx context.Context, price entity.Price) (*entity.Price, error)
-	FindByID(ctx context.Context, id string) (*entity.Price, error)
 	FindByPriceType(ctx context.Context, priceType entity.PriceType) (*entity.Price, error)
 	FindAll(ctx context.Context) ([]entity.Price, error)
-	Delete(ctx context.Context, id string) error
 }

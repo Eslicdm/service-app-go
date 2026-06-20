@@ -25,7 +25,7 @@ WORKDIR /root/
 # Copy the binary from the builder stage
 COPY --from=builder /app/pricing-service/pricing-service .
 
-# Expose the port the app runs on (default for Gin is 8080)
-EXPOSE 8091
+# Expose the port the app runs on (aligned with the Spring pricing-service)
+EXPOSE 8082
 
 CMD ["./pricing-service"]

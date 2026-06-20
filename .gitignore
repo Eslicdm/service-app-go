@@ -1,4 +1,11 @@
+.agent
+.junie
+.vscode
 .env
+env
+
+# Spring reference (kept locally as the analysis source; the Go port spec lives in java-go-overview-migration.md)
+service-app-spring/
 
 # Binaries for programs and plugins
 *.exe

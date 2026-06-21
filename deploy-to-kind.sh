@@ -43,7 +43,7 @@ kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisione
 
 # Build Go services and load Docker images into Kind
 echo -e "${BLUE}Building and loading Go Docker images into Kind...${NC}"
-for service in member-service pricing-service member-request-service; do
+for service in member-service pricing-service member-request-service service-app-gateway; do
     IMAGE_TAG="1"
     echo -e "${BLUE}Building $service:$IMAGE_TAG...${NC}"
     docker build -t "$service:$IMAGE_TAG" -f "$service/Dockerfile" .
@@ -111,11 +111,13 @@ echo -e "${BLUE}Applying Go application manifests...${NC}"
 kubectl apply -f service-app-infra/k8s/30-member-service.yaml
 kubectl apply -f service-app-infra/k8s/31-pricing-service.yaml
 kubectl apply -f service-app-infra/k8s/32-member-request-service.yaml
+kubectl apply -f service-app-infra/k8s/33-service-app-gateway.yaml
 
 echo -e "${BLUE}Waiting for Go application services to be ready in parallel...${NC}"
 wait_for_pod "Member Service" "member-service" "4m" &
 wait_for_pod "Pricing Service" "pricing-service" "4m" &
 wait_for_pod "Member Request Service" "member-request-service" "4m" &
+wait_for_pod "API Gateway" "service-app-gateway" "4m" &
 wait
 
 echo -e "${GREEN}✅ All Go services are deployed and ready!${NC}"
@@ -124,6 +126,7 @@ echo "Access your services (via port-forward or NodePort):"
 echo "  member-service:         kubectl port-forward -n service-app svc/member-service 8081:8081"
 echo "  pricing-service:        kubectl port-forward -n service-app svc/pricing-service 8082:8082"
 echo "  member-request-service: kubectl port-forward -n service-app svc/member-request-service 8084:8084"
+echo "  service-app-gateway:    kubectl port-forward -n service-app svc/service-app-gateway 8090:8090"
 echo ""
 echo "Check status:"
 echo "  kubectl get pods -n service-app -w"

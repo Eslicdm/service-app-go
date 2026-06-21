@@ -23,8 +23,6 @@ spec:
           ports:
             - containerPort: 8090
           env:
-            - name: SPRING_PROFILES_ACTIVE
-              value: "k8s"
             - name: OTEL_SERVICE_NAME
               value: "service-app-gateway"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -36,43 +34,51 @@ spec:
                 secretKeyRef:
                   name: service-app-secrets
                   key: OTEL_TRACES_EXPORTER
-            - name: JAVA_TOOL_OPTIONS
-              value: "-javaagent:/app/agents/opentelemetry-javaagent.jar"
+            # Downstream service URLs (platform DNS)
+            - name: MEMBER_REQUEST_SERVICE_URL
+              value: "http://member-request-service:8084"
+            - name: MEMBER_SERVICE_URL
+              value: "http://member-service:8081"
+            - name: PRICING_SERVICE_URL
+              value: "http://pricing-service:8082"
+            # Redis (rate limiter)
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: service-app-secrets
                   key: REDIS_PASSWORD
-            - name: RABBITMQ_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: service-app-secrets
-                  key: RABBITMQ_USERNAME
-            - name: RABBITMQ_PW
-              valueFrom:
-                secretKeyRef:
-                  name: service-app-secrets
-                  key: RABBITMQ_PW
+            # Keycloak
+            - name: KEYCLOAK_REALM_URL
+              value: "http://keycloak:8080/realms/service-app-realm"
+            # CORS
+            - name: CORS_ALLOWED_ORIGIN
+              value: "http://localhost:4200"
+            - name: PORT
+              value: ":8090"
           readinessProbe:
             httpGet:
-              path: /actuator/health/readiness
+              path: /actuator/health
               port: 8090
             initialDelaySeconds: 30
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /actuator/health/liveness
+              path: /actuator/health
               port: 8090
             initialDelaySeconds: 60
             periodSeconds: 15
           resources:
             requests:
-              memory: "512Mi"
-              cpu: "500m"
+              memory: "256Mi"
+              cpu: "250m"
               ephemeral-storage: "256Mi"
             limits:
-              memory: "1Gi"
-              cpu: "1500m"
+              memory: "512Mi"
+              cpu: "1000m"
               ephemeral-storage: "512Mi"
 ---
 apiVersion: v1

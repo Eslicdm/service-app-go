@@ -329,6 +329,49 @@ services:
       - service-app-network
     restart: no
 
+  # service-app-gateway port = 8090
+  service-app-gateway:
+    build:
+      context: ../..
+      dockerfile: service-app-gateway/Dockerfile
+    container_name: service-app-gateway
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      member-service:
+        condition: service_healthy
+      pricing-service:
+        condition: service_healthy
+      member-request-service:
+        condition: service_healthy
+      otel-collector:
+        condition: service_healthy
+    environment:
+      - MEMBER_REQUEST_SERVICE_URL=http://member-request-service:8084
+      - MEMBER_SERVICE_URL=http://member-service:8081
+      - PRICING_SERVICE_URL=http://pricing-service:8082
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - KEYCLOAK_REALM_URL=http://keycloak:8080/realms/service-app-realm
+      - CORS_ALLOWED_ORIGIN=http://localhost:4200
+      - PORT=:8090
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=service-app-gateway
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8090/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - service-app-network
+    restart: no
+
 volumes:
   keycloak-db-data:
   member-service-db-data:

@@ -1,26 +1,44 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
 	"service-app-go/service-app-gateway/controller"
 	"service-app-go/service-app-gateway/core/config"
+	"service-app-go/service-app-gateway/core/observability"
 	"service-app-go/service-app-gateway/proxy"
 )
 
 func main() {
 	_ = godotenv.Load()
 
-	_, stop := signal.NotifyContext(nil, syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// --- OpenTelemetry ---
+	otelEndpoint := envOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+	otelShutdown, err := observability.SetupOTel(ctx, "service-app-gateway", otelEndpoint)
+	if err != nil {
+		log.Printf("WARN: OTel setup failed: %v (traces/metrics disabled)", err)
+	} else {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := otelShutdown(shutdownCtx); err != nil {
+				log.Printf("OTel shutdown error: %v", err)
+			}
+		}()
+	}
 
 	// --- Security ---
 	issuer := envOrDefault("KEYCLOAK_REALM_URL", "http://keycloak:8080/realms/service-app-realm")
@@ -57,6 +75,7 @@ func main() {
 
 	// --- HTTP server ---
 	r := gin.Default()
+	r.Use(observability.GinMiddleware("service-app-gateway"))
 
 	// CORS (Angular dev server).
 	corsOrigin := envOrDefault("CORS_ALLOWED_ORIGIN", "http://localhost:4200")
@@ -92,9 +111,7 @@ func main() {
 	}()
 
 	// Wait for interrupt signal.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
+	<-ctx.Done()
 	log.Println("Shutting down gateway gracefully...")
 }
 

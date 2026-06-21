@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -18,6 +19,7 @@ import (
 	coreconfig "service-app-go/member-service/core/config"
 	"service-app-go/member-service/core/entity"
 	"service-app-go/member-service/core/exception"
+	"service-app-go/member-service/core/observability"
 	"service-app-go/member-service/member/controller"
 	"service-app-go/member-service/member/repository"
 	"service-app-go/member-service/member/service"
@@ -34,6 +36,21 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// --- OpenTelemetry ---
+	otelEndpoint := envOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+	otelShutdown, err := observability.SetupOTel(ctx, "member-service", otelEndpoint)
+	if err != nil {
+		log.Printf("WARN: OTel setup failed: %v (traces/metrics disabled)", err)
+	} else {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := otelShutdown(shutdownCtx); err != nil {
+				log.Printf("OTel shutdown error: %v", err)
+			}
+		}()
+	}
 
 	// --- PostgreSQL (GORM) ---
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=UTC",
@@ -102,6 +119,7 @@ func main() {
 
 	// --- HTTP server ---
 	r := gin.Default()
+	r.Use(observability.GinMiddleware("member-service"))
 	r.Use(exception.GlobalErrorHandler())
 
 	r.GET("/actuator/health", func(c *gin.Context) {

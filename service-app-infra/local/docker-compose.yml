@@ -294,6 +294,41 @@ services:
       - service-app-network
     restart: no
 
+  # member-request-service port = 8084
+  member-request-service:
+    build:
+      context: ../..
+      dockerfile: member-request-service/Dockerfile
+    container_name: member-request-service
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      otel-collector:
+        condition: service_healthy
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC=member.requests.topic
+      - KEYCLOAK_REALM_URL=http://keycloak:8080/realms/service-app-realm
+      - PORT=:8084
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=member-request-service
+    ports:
+      - "8084:8084"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8084/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - service-app-network
+    restart: no
+
 volumes:
   keycloak-db-data:
   member-service-db-data:

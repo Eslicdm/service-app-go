@@ -23,8 +23,6 @@ spec:
           ports:
             - containerPort: 8084
           env:
-            - name: SPRING_PROFILES_ACTIVE
-              value: "k8s"
             - name: OTEL_SERVICE_NAME
               value: "member-request-service"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -36,33 +34,46 @@ spec:
                 secretKeyRef:
                   name: service-app-secrets
                   key: OTEL_TRACES_EXPORTER
-            - name: JAVA_TOOL_OPTIONS
-              value: "-javaagent:/app/agents/opentelemetry-javaagent.jar"
+            # Redis (request dedup)
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: service-app-secrets
                   key: REDIS_PASSWORD
+            # Kafka (produce member requests)
+            - name: KAFKA_BROKERS
+              value: "kafka:9092"
+            - name: KAFKA_TOPIC
+              value: "member.requests.topic"
+            # Keycloak
+            - name: KEYCLOAK_REALM_URL
+              value: "http://keycloak:8080/realms/service-app-realm"
+            - name: PORT
+              value: ":8084"
           readinessProbe:
             httpGet:
-              path: /actuator/health/readiness
+              path: /actuator/health
               port: 8084
             initialDelaySeconds: 20
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /actuator/health/liveness
+              path: /actuator/health
               port: 8084
             initialDelaySeconds: 60
             periodSeconds: 15
           resources:
             requests:
-              memory: "512Mi"
-              cpu: "250m"
+              memory: "128Mi"
+              cpu: "100m"
               ephemeral-storage: "256Mi"
             limits:
-              memory: "1Gi"
-              cpu: "1000m"
+              memory: "256Mi"
+              cpu: "500m"
               ephemeral-storage: "512Mi"
 ---
 apiVersion: v1

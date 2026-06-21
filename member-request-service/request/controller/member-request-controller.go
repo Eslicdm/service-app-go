@@ -1,22 +1,28 @@
 package controller
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"service-app-go/member-request-service/request/dto"
-	"service-app-go/member-request-service/request/service"
 )
+
+// RequestServiceInterface defines the interface for the request service,
+// enabling unit testing with a mock implementation.
+type RequestServiceInterface interface {
+	ProcessSubmission(ctx context.Context, request dto.MemberRequestDTO) error
+}
 
 // MemberRequestController handles prospect member request submissions,
 // mirroring the Spring MemberRequestController: POST /api/v1/member-requests -> 202.
 type MemberRequestController struct {
-	requestService *service.MemberRequestService
+	requestService RequestServiceInterface
 }
 
 // NewMemberRequestController creates a new MemberRequestController.
-func NewMemberRequestController(requestService *service.MemberRequestService) *MemberRequestController {
+func NewMemberRequestController(requestService RequestServiceInterface) *MemberRequestController {
 	return &MemberRequestController{requestService: requestService}
 }
 

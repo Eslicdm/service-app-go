@@ -15,16 +15,22 @@ const (
 	submissionCacheTTL    = 5 * time.Minute
 )
 
+// Producer defines the interface for publishing member request events.
+// This enables unit testing with a mock implementation.
+type Producer interface {
+	Send(ctx context.Context, request dto.MemberRequestDTO) error
+}
+
 // MemberRequestService processes prospect submissions, mirroring the Spring
 // MemberRequestService.processSubmission: Redis SETNX dedup (5 min TTL),
 // then produce to Kafka if new.
 type MemberRequestService struct {
 	redis    *redis.Client
-	producer *KafkaProducer
+	producer Producer
 }
 
 // NewMemberRequestService creates a new MemberRequestService.
-func NewMemberRequestService(redisClient *redis.Client, producer *KafkaProducer) *MemberRequestService {
+func NewMemberRequestService(redisClient *redis.Client, producer Producer) *MemberRequestService {
 	return &MemberRequestService{
 		redis:    redisClient,
 		producer: producer,

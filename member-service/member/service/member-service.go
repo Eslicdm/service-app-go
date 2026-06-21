@@ -7,16 +7,26 @@ import (
 	"service-app-go/member-service/core/entity"
 	"service-app-go/member-service/core/exception"
 	"service-app-go/member-service/member/dto"
-	"service-app-go/member-service/member/repository"
 
 	"gorm.io/gorm"
 )
 
-type MemberService struct {
-	repo *repository.MemberRepository
+// MemberRepositoryInterface defines the repository methods used by MemberService.
+// This enables unit testing with a mock implementation (Go-idiomatic DI).
+type MemberRepositoryInterface interface {
+	FindAllByManagerID(managerID string) ([]entity.Member, error)
+	FindByEmail(email string) (*entity.Member, error)
+	FindByID(id uint) (*entity.Member, error)
+	Save(member *entity.Member) (*entity.Member, error)
+	ExistsByID(id uint) (bool, error)
+	DeleteByID(id uint) error
 }
 
-func NewMemberService(repo *repository.MemberRepository) *MemberService {
+type MemberService struct {
+	repo MemberRepositoryInterface
+}
+
+func NewMemberService(repo MemberRepositoryInterface) *MemberService {
 	return &MemberService{repo: repo}
 }
 

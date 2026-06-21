@@ -1,0 +1,23 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+recommendation-service
+
+# Test binary
+*.test
+
+# Output of go coverage tool
+*.out
+
+# Environment
+.env
+
+# IDE
+.idea/
+.vscode/
+*.iws
+*.iml
+*.ipr

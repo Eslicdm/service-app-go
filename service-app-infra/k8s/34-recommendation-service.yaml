@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommendation-service
+  namespace: service-app
+  labels:
+    app: recommendation-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: recommendation-service
+  template:
+    metadata:
+      labels:
+        app: recommendation-service
+    spec:
+      serviceAccountName: service-app-sa
+      containers:
+        - name: recommendation-service
+          image: recommendation-service:1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8085
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: "recommendation-service"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_METRICS_EXPORTER
+              value: "otlp"
+            - name: OTEL_TRACES_EXPORTER
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: OTEL_TRACES_EXPORTER
+            # Google GenAI (Gemini)
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: GOOGLE_API_KEY
+            - name: GOOGLE_CHAT_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: service-app-secrets
+                  key: GOOGLE_CHAT_MODEL
+            # Weaviate (vector store)
+            - name: WEAVIATE_HOST
+              value: "weaviate:8091"
+            - name: WEAVIATE_SCHEME
+              value: "http"
+            - name: WEAVIATE_CLASS
+              value: "PriceTier"
+            - name: PORT
+              value: ":8085"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8085
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8085
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+              ephemeral-storage: "256Mi"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+              ephemeral-storage: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommendation-service
+  namespace: service-app
+spec:
+  selector:
+    app: recommendation-service
+  ports:
+    - port: 8085
+      targetPort: 8085
